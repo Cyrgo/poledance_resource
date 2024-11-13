@@ -88,6 +88,17 @@ lib.registerContext({
     }
 })
 
+lib.addKeybind({
+    name = 'cancelpoledance',
+    description = 'Cancel PoleDance',
+    defaultKey = 'x',
+    onReleased = function(self)
+        if not isDancing then return end -- Check if the player is dancing or not.
+        isDancing = false
+        ClearPedTasks(cache.ped)
+    end
+})
+
 local function StartRay()
     lib.showTextUI('[E] to copy  \n[DEL] to cancel')
     while true do
