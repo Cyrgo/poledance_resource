@@ -1,7 +1,5 @@
 # Poledance Resource (Qbox Fork)
 
-![poledance,png](https://github.com/B0STRA/bostra_poledance/assets/119994243/76e5d08d-5d5d-4903-8bcf-8392f508eebe)
-
 This is a **forked and modified version** of the original `bostra_poledance` resource, adapted for the **Qbox Framework**.
 
 ## Original Credits
