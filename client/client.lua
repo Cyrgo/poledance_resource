@@ -2,7 +2,27 @@ local polePoints = {}
 local poleProps = {}
 local modelTargs = {}
 local isDancing = false
+local currentScene = nil
 local Config = require 'config.config'
+
+local function StopDancing()
+    print('[POLEDANCE] Stopping dance - isDancing:', isDancing, 'currentScene:', currentScene)
+    if not isDancing then return end
+    
+    isDancing = false
+    
+    -- Stop synchronized scene if one is active
+    if currentScene then
+        NetworkStopSynchronisedScene(currentScene)
+        currentScene = nil
+    end
+    
+    -- Clear any animations
+    ClearPedTasks(cache.ped)
+    ClearPedSecondaryTask(cache.ped)
+    
+    lib.notify({ title = 'Dance', description = 'Dance cancelled', type = 'inform' })
+end
 
 lib.registerContext({
     id = 'dance_menu',
@@ -12,8 +32,8 @@ lib.registerContext({
         title = 'Cancel Dance',
         icon = 'times',
         onSelect = function()
-            isDancing = false
-            ClearPedTasks(cache.ped)
+            print('[POLEDANCE] Cancelling dance via menu')
+            StopDancing()
         end,
     }, {
         title = 'Pole Dance #1',
@@ -94,8 +114,20 @@ lib.addKeybind({
     defaultKey = 'x',
     onReleased = function(self)
         if not isDancing then return end -- Check if the player is dancing or not.
-        isDancing = false
-        ClearPedTasks(cache.ped)
+        print('[POLEDANCE] Cancelling dance via X keybind')
+        StopDancing()
+    end
+})
+
+lib.addKeybind({
+    name = 'poledancemenu',
+    description = 'Open Dance Menu (while dancing)',
+    defaultKey = 'e',
+    onReleased = function(self)
+        if isDancing then
+            print('[POLEDANCE] Opening dance menu while dancing')
+            lib.showContext('dance_menu')
+        end
     end
 })
 
@@ -140,6 +172,8 @@ local function DestroyTargets()
 end
 
 local function CreateTargets()
+    print('[POLEDANCE] Creating targets with config Target =', Config.Target)
+    print('[POLEDANCE] Number of poles in config:', #Config.Poles)
     DestroyTargets()
     if Config.Target == 'ox' then
         if Config.UseModels then
@@ -157,7 +191,9 @@ local function CreateTargets()
         end
 
         for k, v in pairs(Config.Poles) do
+            print('[POLEDANCE] Processing pole', k, 'at position', v.position, 'with job', v.job or 'none')
             if v.spawn then
+                print('[POLEDANCE] Spawning pole prop at', v.position)
                 lib.requestModel('prop_strip_pole_01')
                 local pole = CreateObject(joaat('prop_strip_pole_01'), v.position.x, v.position.y, v.position.z, false,
                     false,
@@ -175,14 +211,16 @@ local function CreateTargets()
                         name = 'Pole' .. k,
                         icon = 'fas fa-shoe-prints',
                         distance = 3.0,
-                        groups = nil or v.job,
+                        groups = v.job,
                         onSelect = function()
+                            print('[POLEDANCE] Player interacted with pole, showing dance menu')
                             lib.showContext('dance_menu')
                         end
                     }
                 }
             }
             local poleZone = exports.ox_target:addBoxZone(params)
+            print('[POLEDANCE] Created ox_target zone for pole', k, 'at', v.position)
             polePoints[#polePoints + 1] = poleZone
         end
     elseif Config.Target == 'qb' then
@@ -269,11 +307,10 @@ local function CreateTargets()
         end
     end
     for _, v in ipairs(Config.Poles) do
-        local polePoints = lib.points.new({
+        local polePoint = lib.points.new({
             coords = v.position,
             distance = 3.0,
         })
-        polePoints[#polePoints + 1] = v
     end
 end
 
@@ -289,30 +326,36 @@ local function ToConfigFormat(poleConfig)
 end
 
 RegisterNetEvent('bm_dance:start', function(args)
+    print('[POLEDANCE] Dance event triggered with args:', json.encode(args))
     local position = GetEntityCoords(cache.ped)
     local usePolePosition = false
     if not args.coords then args.coords = position end
     if args.dance then
+        print('[POLEDANCE] Processing pole dance', args.dance)
         local nearbyObjects = lib.points.getClosestPoint()
         if nearbyObjects then
+            print('[POLEDANCE] Found nearby point object, starting synchronized scene')
             isDancing = true
-            local scene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
+            currentScene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
                 nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-            NetworkAddPedToSynchronisedScene(cache.ped, scene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
+            NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
                 'pd_dance_0' .. args.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-            NetworkStartSynchronisedScene(scene)
+            NetworkStartSynchronisedScene(currentScene)
         else
-            isDancing = true
+            print('[POLEDANCE] No nearby point object found, using pole position')
             usePolePosition = true
         end
     elseif args.lapdance then
+        print('[POLEDANCE] Processing lap dance', args.lapdance)
         lib.requestAnimDict(args.dict)
         TaskPlayAnim(cache.ped, args.dict, args.anim, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
         isDancing = true
+        currentScene = nil -- Lap dances don't use synchronized scenes
     else
-        for _, point in ipairs(polePoints) do
-            local distance = #(point.coords - GetEntityCoords(cache.ped))
-            if distance <= point.distance then
+        local playerCoords = GetEntityCoords(cache.ped)
+        for _, pole in ipairs(Config.Poles) do
+            local distance = #(pole.position.xyz - playerCoords)
+            if distance <= 3.0 then
                 usePolePosition = true
                 break
             end
@@ -324,11 +367,11 @@ RegisterNetEvent('bm_dance:start', function(args)
             if Config.Debug then print('Close') end
             args.coords = closestPoint.coords
             isDancing = true
-            local scene = NetworkCreateSynchronisedScene(args.coords.x + 0.07, args.coords.y + 0.3,
+            currentScene = NetworkCreateSynchronisedScene(args.coords.x + 0.07, args.coords.y + 0.3,
                 args.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-            NetworkAddPedToSynchronisedScene(cache.ped, scene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
+            NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
                 'pd_dance_0' .. args.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-            NetworkStartSynchronisedScene(scene)
+            NetworkStartSynchronisedScene(currentScene)
         else
             if Config.Debug then print('Not close') end
         end
@@ -359,7 +402,9 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then
         return
     end
+    print('[POLEDANCE] Resource starting, creating targets...')
     CreateTargets()
+    print('[POLEDANCE] Targets created successfully')
 end)
 
 AddEventHandler('onClientResourceStop', function(resourceName)
