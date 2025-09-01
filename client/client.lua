@@ -369,8 +369,12 @@ AddEventHandler('onClientResourceStop', function(resourceName)
     DestroyTargets()
 end)
 
-if GetResourceState('qb-core') == 'started' then
+if GetResourceState('qbx_core') == 'started' then
     AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
+        Wait(3000)
+        CreateTargets()
+    end)
+    AddEventHandler('qbx_core:client:PlayerLoaded', function()
         Wait(3000)
         CreateTargets()
     end)
