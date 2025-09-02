@@ -7,8 +7,8 @@ return {
     NPCEarnings = {
         enabled = true,                                   -- Enable/disable NPC earnings system
         checkRadius = 15.0,                               -- Radius to check for nearby NPCs
-        minEarnings = 1,                                  -- Minimum cash per NPC
-        maxEarnings = 5,                                  -- Maximum cash per NPC
+        minEarnings = 5,                                  -- Minimum cash per NPC
+        maxEarnings = 20,                                  -- Maximum cash per NPC
         earningInterval = 15000,                          -- How often to give money (milliseconds)
         maxNPCsCount = 3,                                 -- Maximum NPCs that can contribute
         enableNotifications = true,                       -- Show earnings notifications
