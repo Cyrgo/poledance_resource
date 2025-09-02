@@ -48,6 +48,25 @@ return {
         }
     },
     
+    -- Stripper NPC Configuration
+    StripperNPCs = {
+        enabled = true,                                   -- Enable/disable stripper NPCs
+        models = {                                        -- Female stripper models
+            'a_f_y_topless_01',
+            's_f_y_stripper_01',
+            's_f_y_stripper_02',
+            'a_f_y_femaleagent'
+        },
+        playerDetectionRadius = 4.0,                      -- Distance to detect approaching players
+        walkAwayDistance = 10.0,                          -- How far NPCs walk when dismissed
+        returnDelay = 5000,                               -- Delay before NPC returns (milliseconds)
+        danceAnimations = {                               -- Pole dance animations for NPCs
+            { dict = 'mini@strip_club@pole_dance@pole_dance1', anim = 'pd_dance_01', dance = 1 },
+            { dict = 'mini@strip_club@pole_dance@pole_dance2', anim = 'pd_dance_02', dance = 2 },
+            { dict = 'mini@strip_club@pole_dance@pole_dance3', anim = 'pd_dance_03', dance = 3 }
+        }
+    },
+    
     Poles = {
         { position = vec4(-1388.7698974609, -674.28186035156, 27.856121063232, 0.0), spawn = true }, -- position required, job optional, spawn optional
         -- Vanilla VU Poles

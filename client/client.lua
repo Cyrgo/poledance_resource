@@ -6,6 +6,8 @@ local currentScene = nil
 local earningThread = nil
 local bartenderNPC = nil
 local bartenderBlip = nil
+local stripperNPCs = {}
+local stripperScenes = {}
 local Config = require 'config.config'
 
 -- Helper function to enumerate all peds
@@ -175,6 +177,261 @@ local function CleanupBartender()
         bartenderBlip = nil
     end
 end
+
+-- Function to spawn stripper NPCs at poles
+local function SpawnStripperNPCs()
+    if not Config.StripperNPCs.enabled then
+        return
+    end
+    
+    for poleIndex, pole in pairs(Config.Poles) do
+        if not stripperNPCs[poleIndex] then
+            -- Select random model and animation
+            local randomModel = Config.StripperNPCs.models[math.random(1, #Config.StripperNPCs.models)]
+            local randomAnim = Config.StripperNPCs.danceAnimations[math.random(1, #Config.StripperNPCs.danceAnimations)]
+            
+            -- Request model
+            lib.requestModel(randomModel)
+            
+            -- Create NPC near the pole
+            local npc = CreatePed(4, randomModel, pole.position.x, pole.position.y, pole.position.z - 1.0, pole.position.w, false, true)
+            
+            -- Configure NPC
+            SetEntityInvincible(npc, true)
+            SetBlockingOfNonTemporaryEvents(npc, true)
+            SetPedDiesWhenInjured(npc, false)
+            SetPedCanPlayAmbientAnims(npc, true)
+            SetPedCanRagdollFromPlayerImpact(npc, false)
+            SetEntityCanBeDamaged(npc, false)
+            SetPedCanBeTargetted(npc, false)
+            
+            -- Use CreateThread to handle NPC dancing asynchronously
+            CreateThread(function()
+                -- Position NPC at pole first
+                SetEntityCoords(npc, pole.position.x, pole.position.y, pole.position.z - 1.0, false, false, false, false)
+                SetEntityHeading(npc, pole.position.w)
+                Wait(500) -- Wait longer to ensure positioning
+                
+                -- Start the dance using exactly the same logic as player
+                local nearbyObjects = lib.points.getClosestPoint()
+                local scene
+                
+                if nearbyObjects then
+                    print('[POLEDANCE] NPC found nearby point object, starting synchronized scene')
+                    scene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
+                        nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
+                    NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
+                        'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
+                    NetworkStartSynchronisedScene(scene)
+                else
+                    print('[POLEDANCE] NPC no nearby point object found, trying pole position fallback')
+                    -- Try the fallback logic like players do
+                    local playerCoords = GetEntityCoords(npc)
+                    local usePolePosition = false
+                    
+                    for _, poleCheck in ipairs(Config.Poles) do
+                        local distance = #(poleCheck.position.xyz - playerCoords)
+                        if distance <= 3.0 then
+                            usePolePosition = true
+                            break
+                        end
+                    end
+                    
+                    if usePolePosition then
+                        local closestPoint = lib.points.getClosestPoint()
+                        if closestPoint then
+                            print('[POLEDANCE] NPC using closest point fallback')
+                            scene = NetworkCreateSynchronisedScene(closestPoint.coords.x + 0.07, closestPoint.coords.y + 0.3,
+                                closestPoint.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
+                            NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
+                                'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
+                            NetworkStartSynchronisedScene(scene)
+                        else
+                            print('[POLEDANCE] NPC fallback failed, using basic animation')
+                            -- Last resort: just play animation without scene
+                            lib.requestAnimDict('mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance)
+                            TaskPlayAnim(npc, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance, 
+                                'pd_dance_0' .. randomAnim.dance, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
+                        end
+                    end
+                end
+                
+                stripperScenes[poleIndex] = scene
+            end)
+            
+            -- Store NPC and scene data
+            stripperNPCs[poleIndex] = {
+                npc = npc,
+                originalPosition = pole.position,
+                isPresent = true,
+                model = randomModel,
+                animation = randomAnim
+            }
+            stripperScenes[poleIndex] = scene
+            
+            print('[POLEDANCE] Spawned stripper NPC at pole', poleIndex)
+        end
+    end
+end
+
+-- Function to dismiss stripper NPC from pole
+local function DismissStripperNPC(poleIndex)
+    local stripperData = stripperNPCs[poleIndex]
+    if not stripperData or not stripperData.isPresent then
+        return
+    end
+    
+    local npc = stripperData.npc
+    
+    -- Stop the synchronized scene
+    if stripperScenes[poleIndex] then
+        NetworkStopSynchronisedScene(stripperScenes[poleIndex])
+        stripperScenes[poleIndex] = nil
+    end
+    
+    -- Clear animations and make NPC walk away
+    ClearPedTasks(npc)
+    SetPedCanPlayAmbientAnims(npc, true)
+    
+    -- Calculate random walk away position
+    local originalPos = stripperData.originalPosition
+    local angle = math.random() * 2 * math.pi
+    local distance = Config.StripperNPCs.walkAwayDistance
+    local walkPos = vec3(
+        originalPos.x + math.cos(angle) * distance,
+        originalPos.y + math.sin(angle) * distance,
+        originalPos.z
+    )
+    
+    -- Make NPC walk away
+    TaskGoToCoordAnyMeans(npc, walkPos.x, walkPos.y, walkPos.z, 1.0, 0, 0, 786603, 0xbf800000)
+    
+    -- Mark as dismissed
+    stripperData.isPresent = false
+    
+    print('[POLEDANCE] Dismissed stripper NPC from pole', poleIndex)
+    
+    -- Set timer to return NPC
+    SetTimeout(Config.StripperNPCs.returnDelay, function()
+        ReturnStripperNPC(poleIndex)
+    end)
+end
+
+-- Function to return stripper NPC to pole
+function ReturnStripperNPC(poleIndex)
+    local stripperData = stripperNPCs[poleIndex]
+    if not stripperData or stripperData.isPresent then
+        return
+    end
+    
+    local npc = stripperData.npc
+    local pole = stripperData.originalPosition
+    
+    -- Check if player is still near the pole
+    local playerCoords = GetEntityCoords(cache.ped)
+    local distance = #(pole.xyz - playerCoords)
+    
+    if distance > Config.StripperNPCs.playerDetectionRadius then
+        -- Clear tasks and move NPC back to pole
+        ClearPedTasks(npc)
+        SetEntityCoords(npc, pole.x, pole.y, pole.z - 1.0, false, false, false, false)
+        SetEntityHeading(npc, pole.w)
+        
+        -- Restart pole dance animation using same logic as players
+        CreateThread(function()
+            Wait(500) -- Wait to ensure positioning
+            
+            local randomAnim = stripperData.animation
+            local nearbyObjects = lib.points.getClosestPoint()
+            local scene
+            
+            if nearbyObjects then
+                print('[POLEDANCE] NPC return: found nearby point object')
+                scene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
+                    nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
+                NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
+                    'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
+                NetworkStartSynchronisedScene(scene)
+            else
+                print('[POLEDANCE] NPC return: trying fallback logic')
+                local npcCoords = GetEntityCoords(npc)
+                local usePolePosition = false
+                
+                for _, poleCheck in ipairs(Config.Poles) do
+                    local distance = #(poleCheck.position.xyz - npcCoords)
+                    if distance <= 3.0 then
+                        usePolePosition = true
+                        break
+                    end
+                end
+                
+                if usePolePosition then
+                    local closestPoint = lib.points.getClosestPoint()
+                    if closestPoint then
+                        print('[POLEDANCE] NPC return: using closest point fallback')
+                        scene = NetworkCreateSynchronisedScene(closestPoint.coords.x + 0.07, closestPoint.coords.y + 0.3,
+                            closestPoint.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
+                        NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
+                            'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
+                        NetworkStartSynchronisedScene(scene)
+                    else
+                        print('[POLEDANCE] NPC return: using basic animation fallback')
+                        lib.requestAnimDict('mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance)
+                        TaskPlayAnim(npc, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance, 
+                            'pd_dance_0' .. randomAnim.dance, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
+                    end
+                end
+            end
+            
+            stripperScenes[poleIndex] = scene
+            stripperData.isPresent = true
+        end)
+        
+        print('[POLEDANCE] Returned stripper NPC to pole', poleIndex)
+    else
+        -- Player still near, try again later
+        SetTimeout(Config.StripperNPCs.returnDelay, function()
+            ReturnStripperNPC(poleIndex)
+        end)
+    end
+end
+
+-- Function to cleanup stripper NPCs
+local function CleanupStripperNPCs()
+    for poleIndex, stripperData in pairs(stripperNPCs) do
+        if stripperData.npc then
+            if stripperScenes[poleIndex] then
+                NetworkStopSynchronisedScene(stripperScenes[poleIndex])
+            end
+            DeletePed(stripperData.npc)
+        end
+    end
+    stripperNPCs = {}
+    stripperScenes = {}
+end
+
+-- Function to dismiss NPCs when player starts dancing at their pole
+local function DismissNPCAtPlayerPole()
+    if not Config.StripperNPCs.enabled then
+        return
+    end
+    
+    local playerCoords = GetEntityCoords(cache.ped)
+    
+    -- Find which pole the player is dancing at
+    for poleIndex, pole in pairs(Config.Poles) do
+        local distance = #(pole.position.xyz - playerCoords)
+        if distance <= 3.0 then -- Player is at this pole
+            local stripperData = stripperNPCs[poleIndex]
+            if stripperData and stripperData.isPresent then
+                DismissStripperNPC(poleIndex)
+                print('[POLEDANCE] Player started dancing, dismissed NPC from pole', poleIndex)
+                break -- Only dismiss from one pole
+            end
+        end
+    end
+end
+
 
 local function StopDancing()
     print('[POLEDANCE] Stopping dance - isDancing:', isDancing, 'currentScene:', currentScene)
@@ -583,6 +840,8 @@ RegisterNetEvent('bm_dance:start', function(args)
         if nearbyObjects then
             print('[POLEDANCE] Found nearby point object, starting synchronized scene')
             isDancing = true
+            -- Dismiss stripper NPC when player starts dancing
+            DismissNPCAtPlayerPole()
             currentScene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
                 nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
             NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
@@ -596,6 +855,8 @@ RegisterNetEvent('bm_dance:start', function(args)
         end
     elseif args.lapdance then
         print('[POLEDANCE] Processing lap dance', args.lapdance)
+        -- Dismiss stripper NPC when player starts dancing (for lap dances too)
+        DismissNPCAtPlayerPole()
         lib.requestAnimDict(args.dict)
         TaskPlayAnim(cache.ped, args.dict, args.anim, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
         isDancing = true
@@ -618,6 +879,8 @@ RegisterNetEvent('bm_dance:start', function(args)
             if Config.Debug then print('Close') end
             args.coords = closestPoint.coords
             isDancing = true
+            -- Dismiss stripper NPC when player starts dancing
+            DismissNPCAtPlayerPole()
             currentScene = NetworkCreateSynchronisedScene(args.coords.x + 0.07, args.coords.y + 0.3,
                 args.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
             NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
@@ -697,10 +960,11 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then
         return
     end
-    print('[POLEDANCE] Resource starting, creating targets and bartender...')
+    print('[POLEDANCE] Resource starting, creating targets, bartender, and stripper NPCs...')
     CreateTargets()
     SpawnBartender()
-    print('[POLEDANCE] Targets and bartender created successfully')
+    SpawnStripperNPCs()
+    print('[POLEDANCE] All systems created successfully')
 end)
 
 AddEventHandler('onClientResourceStop', function(resourceName)
@@ -709,6 +973,7 @@ AddEventHandler('onClientResourceStop', function(resourceName)
     end
     DestroyTargets()
     CleanupBartender()
+    CleanupStripperNPCs()
 end)
 
 if GetResourceState('qbx_core') == 'started' then
@@ -716,10 +981,12 @@ if GetResourceState('qbx_core') == 'started' then
         Wait(3000)
         CreateTargets()
         SpawnBartender()
+        SpawnStripperNPCs()
     end)
     AddEventHandler('qbx_core:client:PlayerLoaded', function()
         Wait(3000)
         CreateTargets()
         SpawnBartender()
+        SpawnStripperNPCs()
     end)
 end
