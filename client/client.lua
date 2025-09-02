@@ -3,13 +3,105 @@ local poleProps = {}
 local modelTargs = {}
 local isDancing = false
 local currentScene = nil
+local earningThread = nil
 local Config = require 'config.config'
+
+-- Helper function to enumerate all peds
+function EnumeratePeds()
+    return coroutine.wrap(function()
+        local iter, id = FindFirstPed()
+        if not id or id == 0 then
+            EndFindPed(iter)
+            return
+        end
+        
+        local enum = {handle = iter, destructor = EndFindPed}
+        setmetatable(enum, entityEnumerator)
+        
+        local next = true
+        repeat
+            coroutine.yield(id)
+            next, id = FindNextPed(iter)
+        until not next
+        
+        enum.destructor, enum.handle = nil, nil
+        EndFindPed(iter)
+    end)
+end
+
+-- Entity enumerator metatable
+entityEnumerator = {
+    __gc = function(enum)
+        if enum.destructor and enum.handle then
+            enum.destructor(enum.handle)
+        end
+    end
+}
+
+-- Function to count nearby NPCs
+local function GetNearbyNPCCount()
+    if not Config.NPCEarnings.enabled then
+        return 0
+    end
+    
+    local playerPed = cache.ped
+    local playerCoords = GetEntityCoords(playerPed)
+    local nearbyNPCs = 0
+    
+    -- Get all peds in the area
+    for ped in EnumeratePeds() do
+        if ped ~= playerPed and DoesEntityExist(ped) then
+            local pedCoords = GetEntityCoords(ped)
+            local distance = #(playerCoords - pedCoords)
+            
+            -- Check if ped is within radius and is an NPC (not player)
+            if distance <= Config.NPCEarnings.checkRadius and not IsPedAPlayer(ped) then
+                -- Additional checks to ensure it's a valid NPC
+                if not IsPedDeadOrDying(ped, true) and GetPedType(ped) ~= 28 then -- 28 is animal type
+                    nearbyNPCs = nearbyNPCs + 1
+                end
+            end
+        end
+    end
+    
+    return nearbyNPCs
+end
+
+-- Function to start earning money from NPCs
+local function StartEarningMoney()
+    if not Config.NPCEarnings.enabled or earningThread then
+        return
+    end
+    
+    earningThread = CreateThread(function()
+        while isDancing do
+            local npcCount = GetNearbyNPCCount()
+            
+            if npcCount > 0 then
+                TriggerServerEvent('bm_dance:earnMoney', npcCount)
+            end
+            
+            Wait(Config.NPCEarnings.earningInterval)
+        end
+        earningThread = nil
+    end)
+end
+
+-- Function to stop earning money
+local function StopEarningMoney()
+    if earningThread then
+        earningThread = nil
+    end
+end
 
 local function StopDancing()
     print('[POLEDANCE] Stopping dance - isDancing:', isDancing, 'currentScene:', currentScene)
     if not isDancing then return end
     
     isDancing = false
+    
+    -- Stop earning money from NPCs
+    StopEarningMoney()
     
     -- Stop synchronized scene if one is active
     if currentScene then
@@ -341,6 +433,8 @@ RegisterNetEvent('bm_dance:start', function(args)
             NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
                 'pd_dance_0' .. args.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
             NetworkStartSynchronisedScene(currentScene)
+            -- Start earning money from nearby NPCs
+            StartEarningMoney()
         else
             print('[POLEDANCE] No nearby point object found, using pole position')
             usePolePosition = true
@@ -351,6 +445,8 @@ RegisterNetEvent('bm_dance:start', function(args)
         TaskPlayAnim(cache.ped, args.dict, args.anim, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
         isDancing = true
         currentScene = nil -- Lap dances don't use synchronized scenes
+        -- Start earning money from nearby NPCs
+        StartEarningMoney()
     else
         local playerCoords = GetEntityCoords(cache.ped)
         for _, pole in ipairs(Config.Poles) do
@@ -372,9 +468,24 @@ RegisterNetEvent('bm_dance:start', function(args)
             NetworkAddPedToSynchronisedScene(cache.ped, currentScene, 'mini@strip_club@pole_dance@pole_dance' .. args.dance,
                 'pd_dance_0' .. args.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
             NetworkStartSynchronisedScene(currentScene)
+            -- Start earning money from nearby NPCs
+            StartEarningMoney()
         else
             if Config.Debug then print('Not close') end
         end
+    end
+end)
+
+-- Handle earnings notifications from server
+RegisterNetEvent('bm_dance:notifyEarnings', function(earnings, npcCount)
+    if Config.NPCEarnings.enableNotifications then
+        local message = string.format("Earned $%d from %d nearby NPC%s!", earnings, npcCount, npcCount == 1 and "" or "s")
+        lib.notify({ 
+            title = 'Tips Received', 
+            description = message, 
+            type = 'success',
+            icon = 'fa-solid fa-dollar-sign'
+        })
     end
 end)
 
