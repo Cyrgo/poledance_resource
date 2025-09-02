@@ -14,6 +14,40 @@ return {
         enableNotifications = true,                       -- Show earnings notifications
     },
     
+    -- Bartender Configuration
+    Bartender = {
+        enabled = true,                                   -- Enable/disable bartender NPC
+        position = vec4(129.50, -1284.25, 29.27, 131.64), -- Perfect bartender position
+        model = 's_f_y_bartender_01',                     -- Female Vanilla Unicorn bartender
+        name = 'Vanilla Unicorn Bartender',               -- NPC name
+        blip = {
+            enabled = true,                               -- Show blip on map
+            sprite = 93,                                  -- Blip icon (bar glass)
+            color = 5,                                    -- Blip color (yellow)
+            scale = 0.8,                                  -- Blip size
+            name = 'Vanilla Unicorn Bar'                  -- Blip label
+        }
+    },
+    
+    -- Bar Menu Items
+    BarMenu = {
+        drinks = {
+            { name = 'beer', label = 'Beer', price = 8, item = 'beer' },
+            { name = 'whiskey', label = 'Whiskey', price = 15, item = 'whiskey' },
+            -- { name = 'vodka', label = 'Vodka', price = 12, item = 'vodka' },
+            -- { name = 'tequila', label = 'Tequila', price = 18, item = 'tequila' },
+            -- { name = 'wine', label = 'Wine', price = 20, item = 'wine' },
+            -- { name = 'cocktail', label = 'House Cocktail', price = 25, item = 'cocktail' }
+        },
+        food = {
+            -- { name = 'sandwich', label = 'Club Sandwich', price = 12, item = 'sandwich' },
+            { name = 'burger', label = 'Burger', price = 15, item = 'burger' },
+            -- { name = 'pizza', label = 'Pizza Slice', price = 10, item = 'pizza' },
+            -- { name = 'fries', label = 'Fries', price = 8, item = 'fries' },
+            -- { name = 'wings', label = 'Chicken Wings', price = 18, item = 'wings' }
+        }
+    },
+    
     Poles = {
         { position = vec4(-1388.7698974609, -674.28186035156, 27.856121063232, 0.0), spawn = true }, -- position required, job optional, spawn optional
         -- Vanilla VU Poles

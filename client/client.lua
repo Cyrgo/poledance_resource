@@ -4,6 +4,8 @@ local modelTargs = {}
 local isDancing = false
 local currentScene = nil
 local earningThread = nil
+local bartenderNPC = nil
+local bartenderBlip = nil
 local Config = require 'config.config'
 
 -- Helper function to enumerate all peds
@@ -94,6 +96,86 @@ local function StopEarningMoney()
     end
 end
 
+-- Function to spawn bartender NPC
+local function SpawnBartender()
+    if not Config.Bartender.enabled then
+        return
+    end
+    
+    -- Remove existing bartender if exists
+    if bartenderNPC then
+        DeletePed(bartenderNPC)
+        bartenderNPC = nil
+    end
+    
+    -- Remove existing blip
+    if bartenderBlip then
+        RemoveBlip(bartenderBlip)
+        bartenderBlip = nil
+    end
+    
+    -- Request model
+    lib.requestModel(Config.Bartender.model)
+    
+    -- Create NPC
+    bartenderNPC = CreatePed(4, Config.Bartender.model, Config.Bartender.position.x, Config.Bartender.position.y, Config.Bartender.position.z - 1.0, Config.Bartender.position.w, false, true)
+    
+    -- Configure NPC
+    SetEntityInvincible(bartenderNPC, true)
+    FreezeEntityPosition(bartenderNPC, true)
+    SetBlockingOfNonTemporaryEvents(bartenderNPC, true)
+    SetPedDiesWhenInjured(bartenderNPC, false)
+    SetPedCanPlayAmbientAnims(bartenderNPC, true)
+    SetPedCanRagdollFromPlayerImpact(bartenderNPC, false)
+    SetEntityCanBeDamaged(bartenderNPC, false)
+    SetPedCanBeTargetted(bartenderNPC, false)
+    
+    -- Create blip if enabled
+    if Config.Bartender.blip.enabled then
+        bartenderBlip = AddBlipForCoord(Config.Bartender.position.x, Config.Bartender.position.y, Config.Bartender.position.z)
+        SetBlipSprite(bartenderBlip, Config.Bartender.blip.sprite)
+        SetBlipColour(bartenderBlip, Config.Bartender.blip.color)
+        SetBlipScale(bartenderBlip, Config.Bartender.blip.scale)
+        SetBlipAsShortRange(bartenderBlip, true)
+        BeginTextCommandSetBlipName('STRING')
+        AddTextComponentString(Config.Bartender.blip.name)
+        EndTextCommandSetBlipName(bartenderBlip)
+    end
+    
+    -- Add ox_target interaction
+    if Config.Target == 'ox' then
+        exports.ox_target:addLocalEntity(bartenderNPC, {
+            {
+                label = 'Order Drinks & Food',
+                name = 'bartender_menu',
+                icon = 'fas fa-cocktail',
+                distance = 2.5,
+                onSelect = function()
+                    TriggerEvent('bm_bar:showMenu')
+                end
+            }
+        })
+    end
+    
+    print('[POLEDANCE] Bartender NPC spawned at', Config.Bartender.position)
+end
+
+-- Function to cleanup bartender
+local function CleanupBartender()
+    if bartenderNPC then
+        if Config.Target == 'ox' then
+            exports.ox_target:removeLocalEntity(bartenderNPC)
+        end
+        DeletePed(bartenderNPC)
+        bartenderNPC = nil
+    end
+    
+    if bartenderBlip then
+        RemoveBlip(bartenderBlip)
+        bartenderBlip = nil
+    end
+end
+
 local function StopDancing()
     print('[POLEDANCE] Stopping dance - isDancing:', isDancing, 'currentScene:', currentScene)
     if not isDancing then return end
@@ -115,6 +197,79 @@ local function StopDancing()
     
     lib.notify({ title = 'Dance', description = 'Dance cancelled', type = 'inform' })
 end
+
+-- Build bar menu options dynamically
+local function buildBarMenuOptions()
+    local options = {
+        { title = 'Vanilla Unicorn Bar' },
+        { 
+            title = 'Drinks', 
+            description = 'Alcoholic beverages',
+            icon = 'fas fa-wine-glass',
+            menu = 'bar_drinks_menu'
+        },
+        { 
+            title = 'Food', 
+            description = 'Bar snacks and meals',
+            icon = 'fas fa-hamburger',
+            menu = 'bar_food_menu'
+        }
+    }
+    return options
+end
+
+local function buildDrinksMenu()
+    local options = {{ title = 'Available Drinks' }}
+    
+    for _, drink in pairs(Config.BarMenu.drinks) do
+        table.insert(options, {
+            title = drink.label,
+            description = '$' .. drink.price,
+            icon = 'fas fa-cocktail',
+            event = 'bm_bar:purchase',
+            args = { type = 'drink', item = drink }
+        })
+    end
+    
+    return options
+end
+
+local function buildFoodMenu()
+    local options = {{ title = 'Available Food' }}
+    
+    for _, food in pairs(Config.BarMenu.food) do
+        table.insert(options, {
+            title = food.label,
+            description = '$' .. food.price,
+            icon = 'fas fa-utensils',
+            event = 'bm_bar:purchase',
+            args = { type = 'food', item = food }
+        })
+    end
+    
+    return options
+end
+
+-- Register bar menu contexts
+lib.registerContext({
+    id = 'bar_main_menu',
+    title = 'Vanilla Unicorn Bar',
+    options = buildBarMenuOptions()
+})
+
+lib.registerContext({
+    id = 'bar_drinks_menu',
+    title = 'Bar Drinks',
+    menu = 'bar_main_menu',
+    options = buildDrinksMenu()
+})
+
+lib.registerContext({
+    id = 'bar_food_menu',
+    title = 'Bar Food',
+    menu = 'bar_main_menu',
+    options = buildFoodMenu()
+})
 
 lib.registerContext({
     id = 'dance_menu',
@@ -489,6 +644,35 @@ RegisterNetEvent('bm_dance:notifyEarnings', function(earnings, npcCount)
     end
 end)
 
+-- Handle bar menu show event
+RegisterNetEvent('bm_bar:showMenu', function()
+    lib.showContext('bar_main_menu')
+end)
+
+-- Handle purchase event
+RegisterNetEvent('bm_bar:purchase', function(data)
+    local item = data.item
+    local type = data.type
+    
+    -- Show confirmation with loading indicator
+    local alert = lib.alertDialog({
+        header = 'Purchase ' .. item.label,
+        content = 'Are you sure you want to buy ' .. item.label .. ' for $' .. item.price .. '?',
+        centered = true,
+        cancel = true
+    })
+    
+    if alert == 'confirm' then
+        -- Trigger server purchase
+        TriggerServerEvent('bm_bar:buyItem', {
+            item = item.item,
+            label = item.label,
+            price = item.price,
+            type = type
+        })
+    end
+end)
+
 RegisterNetEvent('bm_dance:pole', function()
     local polePosition = StartRay()
     if polePosition then
@@ -513,9 +697,10 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then
         return
     end
-    print('[POLEDANCE] Resource starting, creating targets...')
+    print('[POLEDANCE] Resource starting, creating targets and bartender...')
     CreateTargets()
-    print('[POLEDANCE] Targets created successfully')
+    SpawnBartender()
+    print('[POLEDANCE] Targets and bartender created successfully')
 end)
 
 AddEventHandler('onClientResourceStop', function(resourceName)
@@ -523,15 +708,18 @@ AddEventHandler('onClientResourceStop', function(resourceName)
         return
     end
     DestroyTargets()
+    CleanupBartender()
 end)
 
 if GetResourceState('qbx_core') == 'started' then
     AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
         Wait(3000)
         CreateTargets()
+        SpawnBartender()
     end)
     AddEventHandler('qbx_core:client:PlayerLoaded', function()
         Wait(3000)
         CreateTargets()
+        SpawnBartender()
     end)
 end
