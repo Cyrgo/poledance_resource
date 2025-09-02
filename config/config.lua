@@ -54,8 +54,7 @@ return {
         models = {                                        -- Female stripper models
             'a_f_y_topless_01',
             's_f_y_stripper_01',
-            's_f_y_stripper_02',
-            'a_f_y_femaleagent'
+            's_f_y_stripper_02'
         },
         playerDetectionRadius = 4.0,                      -- Distance to detect approaching players
         walkAwayDistance = 10.0,                          -- How far NPCs walk when dismissed
