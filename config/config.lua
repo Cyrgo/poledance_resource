@@ -7,9 +7,9 @@ return {
     NPCEarnings = {
         enabled = true,                                   -- Enable/disable NPC earnings system
         checkRadius = 15.0,                               -- Radius to check for nearby NPCs
-        minEarnings = 5,                                  -- Minimum cash per NPC
-        maxEarnings = 20,                                  -- Maximum cash per NPC
-        earningInterval = 15000,                          -- How often to give money (milliseconds)
+        minEarnings = 4,                                  -- Minimum cash per NPC
+        maxEarnings = 12,                                 -- Maximum cash per NPC
+        earningInterval = 20000,                          -- How often to give money (milliseconds)
         maxNPCsCount = 3,                                 -- Maximum NPCs that can contribute
         enableNotifications = true,                       -- Show earnings notifications
     },
@@ -59,10 +59,15 @@ return {
         playerDetectionRadius = 4.0,                      -- Distance to detect approaching players
         walkAwayDistance = 10.0,                          -- How far NPCs walk when dismissed
         returnDelay = 5000,                               -- Delay before NPC returns (milliseconds)
-        danceAnimations = {                               -- Pole dance animations for NPCs
-            { dict = 'mini@strip_club@pole_dance@pole_dance1', anim = 'pd_dance_01', dance = 1 },
-            { dict = 'mini@strip_club@pole_dance@pole_dance2', anim = 'pd_dance_02', dance = 2 },
-            { dict = 'mini@strip_club@pole_dance@pole_dance3', anim = 'pd_dance_03', dance = 3 }
+        danceInterval = 180000,                           -- Time between lap dance changes (ms)
+        -- Lap dance animations for NPCs (will cycle randomly)
+        lapDanceAnimations = {
+            { dict = 'mp_safehouse', anim = 'lap_dance_girl' },
+            { dict = 'mini@strip_club@private_dance@idle', anim = 'priv_dance_idle' },
+            { dict = 'mini@strip_club@private_dance@part1', anim = 'priv_dance_p1' },
+            { dict = 'mini@strip_club@private_dance@part2', anim = 'priv_dance_p2' },
+            { dict = 'mini@strip_club@private_dance@part3', anim = 'priv_dance_p3' },
+            { dict = 'oddjobs@assassinate@multi@yachttarget@lapdance', anim = 'yacht_ld_f' }
         }
     },
     

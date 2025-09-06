@@ -50,45 +50,62 @@ end)
 -- Handle bar item purchases
 RegisterNetEvent('bm_bar:buyItem', function(data)
     local src = source
-    
+
     if not data or not data.item or not data.price then
         return
     end
-    
+    local quantity = tonumber(data.quantity) or 1
+    if quantity < 1 then quantity = 1 end
+
     -- Get player using Qbox framework
     if GetResourceState('qbx_core') == 'started' then
         local Player = exports.qbx_core:GetPlayer(src)
         if not Player then
             return
         end
-        
+        local totalPrice = data.price * quantity
+
         -- Check if player has enough money
         local playerMoney = Player.Functions.GetMoney('cash')
-        if playerMoney < data.price then
+        if playerMoney < totalPrice then
             TriggerClientEvent('lib:notify', src, {
                 title = 'Purchase Failed',
-                description = 'Not enough cash! You need $' .. data.price,
+                description = 'Not enough cash! You need $' .. totalPrice,
                 type = 'error',
                 icon = 'fas fa-exclamation-triangle'
             })
             return
         end
         
-        -- Remove money and add item
-        if Player.Functions.RemoveMoney('cash', data.price, 'bar-purchase') then
+        -- Optional: pre-check capacity when ox_inventory is present
+        if GetResourceState('ox_inventory') == 'started' then
+            local can = exports.ox_inventory:CanCarryItem(src, data.item, quantity)
+            if not can then
+                TriggerClientEvent('lib:notify', src, {
+                    title = 'Purchase Failed',
+                    description = 'Your inventory is full!',
+                    type = 'error',
+                    icon = 'fas fa-exclamation-triangle'
+                })
+                return
+            end
+        end
+
+        -- Remove money and add item(s)
+        if Player.Functions.RemoveMoney('cash', totalPrice, 'bar-purchase') then
             -- Try to add item using ox_inventory if available
             if GetResourceState('ox_inventory') == 'started' then
-                local success = exports.ox_inventory:AddItem(src, data.item, 1)
+                local success = exports.ox_inventory:AddItem(src, data.item, quantity)
                 if success then
                     TriggerClientEvent('lib:notify', src, {
                         title = 'Purchase Successful',
-                        description = 'You bought ' .. data.label .. ' for $' .. data.price,
+                        description = ('You bought %dx %s for $%d'):format(quantity, data.label, totalPrice),
                         type = 'success',
                         icon = 'fas fa-shopping-cart'
                     })
                 else
                     -- Refund if item couldn't be added
-                    Player.Functions.AddMoney('cash', data.price, 'bar-purchase-refund')
+                    Player.Functions.AddMoney('cash', totalPrice, 'bar-purchase-refund')
                     TriggerClientEvent('lib:notify', src, {
                         title = 'Purchase Failed',
                         description = 'Your inventory is full!',
@@ -98,17 +115,17 @@ RegisterNetEvent('bm_bar:buyItem', function(data)
                 end
             else
                 -- Fallback: try qbx_core inventory
-                local success = Player.Functions.AddItem(data.item, 1)
+                local success = Player.Functions.AddItem(data.item, quantity)
                 if success then
                     TriggerClientEvent('lib:notify', src, {
                         title = 'Purchase Successful',
-                        description = 'You bought ' .. data.label .. ' for $' .. data.price,
+                        description = ('You bought %dx %s for $%d'):format(quantity, data.label, totalPrice),
                         type = 'success',
                         icon = 'fas fa-shopping-cart'
                     })
                 else
                     -- Refund if item couldn't be added
-                    Player.Functions.AddMoney('cash', data.price, 'bar-purchase-refund')
+                    Player.Functions.AddMoney('cash', totalPrice, 'bar-purchase-refund')
                     TriggerClientEvent('lib:notify', src, {
                         title = 'Purchase Failed',
                         description = 'Your inventory is full!',

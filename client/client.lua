@@ -189,6 +189,43 @@ local function CleanupBartender()
 end
 
 -- Function to spawn stripper NPCs at poles
+local function NPCPlayLapDance(npc, anim)
+    if not npc or not DoesEntityExist(npc) then return end
+    lib.requestAnimDict(anim.dict)
+    TaskPlayAnim(npc, anim.dict, anim.anim, 1.0, 1.0, -1, 1, 0, false, false, false)
+end
+
+local function StartStripperCycle(poleIndex)
+    local data = stripperNPCs[poleIndex]
+    if not data then return end
+    local interval = Config.StripperNPCs.danceInterval or 180000
+    SetTimeout(interval, function()
+        local d = stripperNPCs[poleIndex]
+        if not d then return end
+        -- Only switch if present at pole
+        if d.isPresent and DoesEntityExist(d.npc) then
+            local animations = Config.StripperNPCs.lapDanceAnimations
+            if animations and #animations > 0 then
+                local newIndex = math.random(1, #animations)
+                -- try not to repeat same anim back-to-back
+                if d.currentAnimIndex and #animations > 1 then
+                    for _ = 1, 3 do
+                        if newIndex ~= d.currentAnimIndex then break end
+                        newIndex = math.random(1, #animations)
+                    end
+                end
+                d.currentAnimIndex = newIndex
+                d.animation = animations[newIndex]
+                ClearPedTasks(d.npc)
+                NPCPlayLapDance(d.npc, d.animation)
+            end
+        end
+        -- Schedule next regardless; guard will prevent if dismissed
+        StartStripperCycle(poleIndex)
+    end)
+end
+
+-- Function to spawn stripper NPCs at poles
 local function SpawnStripperNPCs()
     if not Config.StripperNPCs.enabled then
         return
@@ -196,9 +233,8 @@ local function SpawnStripperNPCs()
     
     for poleIndex, pole in pairs(Config.Poles) do
         if not stripperNPCs[poleIndex] then
-            -- Select random model and animation
+            -- Select random model
             local randomModel = Config.StripperNPCs.models[math.random(1, #Config.StripperNPCs.models)]
-            local randomAnim = Config.StripperNPCs.danceAnimations[math.random(1, #Config.StripperNPCs.danceAnimations)]
             
             -- Request model
             lib.requestModel(randomModel)
@@ -220,53 +256,19 @@ local function SpawnStripperNPCs()
                 -- Position NPC at pole first
                 SetEntityCoords(npc, pole.position.x, pole.position.y, pole.position.z - 1.0, false, false, false, false)
                 SetEntityHeading(npc, pole.position.w)
-                Wait(500) -- Wait longer to ensure positioning
-                
-                -- Start the dance using exactly the same logic as player
-                local nearbyObjects = lib.points.getClosestPoint()
-                local scene
-                
-                if nearbyObjects then
-                    print('[POLEDANCE] NPC found nearby point object, starting synchronized scene')
-                    scene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
-                        nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-                    NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
-                        'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-                    NetworkStartSynchronisedScene(scene)
-                else
-                    print('[POLEDANCE] NPC no nearby point object found, trying pole position fallback')
-                    -- Try the fallback logic like players do
-                    local playerCoords = GetEntityCoords(npc)
-                    local usePolePosition = false
-                    
-                    for _, poleCheck in ipairs(Config.Poles) do
-                        local distance = #(poleCheck.position.xyz - playerCoords)
-                        if distance <= 3.0 then
-                            usePolePosition = true
-                            break
-                        end
-                    end
-                    
-                    if usePolePosition then
-                        local closestPoint = lib.points.getClosestPoint()
-                        if closestPoint then
-                            print('[POLEDANCE] NPC using closest point fallback')
-                            scene = NetworkCreateSynchronisedScene(closestPoint.coords.x + 0.07, closestPoint.coords.y + 0.3,
-                                closestPoint.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-                            NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
-                                'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-                            NetworkStartSynchronisedScene(scene)
-                        else
-                            print('[POLEDANCE] NPC fallback failed, using basic animation')
-                            -- Last resort: just play animation without scene
-                            lib.requestAnimDict('mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance)
-                            TaskPlayAnim(npc, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance, 
-                                'pd_dance_0' .. randomAnim.dance, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
-                        end
-                    end
+                Wait(300)
+
+                -- Start with a random lap dance
+                local lapAnims = Config.StripperNPCs.lapDanceAnimations
+                local animIndex = 1
+                if lapAnims and #lapAnims > 0 then
+                    animIndex = math.random(1, #lapAnims)
                 end
-                
-                stripperScenes[poleIndex] = scene
+                local chosen = (lapAnims and lapAnims[animIndex])
+                if chosen then
+                    NPCPlayLapDance(npc, chosen)
+                end
+                stripperScenes[poleIndex] = nil
             end)
             
             -- Store NPC and scene data
@@ -275,9 +277,20 @@ local function SpawnStripperNPCs()
                 originalPosition = pole.position,
                 isPresent = true,
                 model = randomModel,
-                animation = randomAnim
+                animation = nil,
+                currentAnimIndex = nil
             }
-            stripperScenes[poleIndex] = scene
+            -- Record current anim index
+            local lapAnims = Config.StripperNPCs.lapDanceAnimations
+            if lapAnims and #lapAnims > 0 then
+                local idx = math.random(1, #lapAnims)
+                stripperNPCs[poleIndex].currentAnimIndex = idx
+                stripperNPCs[poleIndex].animation = lapAnims[idx]
+            end
+            stripperScenes[poleIndex] = nil
+
+            -- Start periodic alternation of lap dances
+            StartStripperCycle(poleIndex)
             
             print('[POLEDANCE] Spawned stripper NPC at pole', poleIndex)
         end
@@ -293,7 +306,7 @@ local function DismissStripperNPC(poleIndex)
     
     local npc = stripperData.npc
     
-    -- Stop the synchronized scene
+    -- Stop any synchronized scene (not used for lap dances)
     if stripperScenes[poleIndex] then
         NetworkStopSynchronisedScene(stripperScenes[poleIndex])
         stripperScenes[poleIndex] = nil
@@ -347,55 +360,19 @@ function ReturnStripperNPC(poleIndex)
         SetEntityCoords(npc, pole.x, pole.y, pole.z - 1.0, false, false, false, false)
         SetEntityHeading(npc, pole.w)
         
-        -- Restart pole dance animation using same logic as players
-        CreateThread(function()
-            Wait(500) -- Wait to ensure positioning
-            
-            local randomAnim = stripperData.animation
-            local nearbyObjects = lib.points.getClosestPoint()
-            local scene
-            
-            if nearbyObjects then
-                print('[POLEDANCE] NPC return: found nearby point object')
-                scene = NetworkCreateSynchronisedScene(nearbyObjects.coords.x + 0.07, nearbyObjects.coords.y + 0.3,
-                    nearbyObjects.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-                NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
-                    'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-                NetworkStartSynchronisedScene(scene)
-            else
-                print('[POLEDANCE] NPC return: trying fallback logic')
-                local npcCoords = GetEntityCoords(npc)
-                local usePolePosition = false
-                
-                for _, poleCheck in ipairs(Config.Poles) do
-                    local distance = #(poleCheck.position.xyz - npcCoords)
-                    if distance <= 3.0 then
-                        usePolePosition = true
-                        break
-                    end
-                end
-                
-                if usePolePosition then
-                    local closestPoint = lib.points.getClosestPoint()
-                    if closestPoint then
-                        print('[POLEDANCE] NPC return: using closest point fallback')
-                        scene = NetworkCreateSynchronisedScene(closestPoint.coords.x + 0.07, closestPoint.coords.y + 0.3,
-                            closestPoint.coords.z + 1.15, 0.0, 0.0, 0.0, 2, false, true, 1065353216, 0, 1.3)
-                        NetworkAddPedToSynchronisedScene(npc, scene, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance,
-                            'pd_dance_0' .. randomAnim.dance, 1.5, -4.0, 1, 1, 1148846080, 0)
-                        NetworkStartSynchronisedScene(scene)
-                    else
-                        print('[POLEDANCE] NPC return: using basic animation fallback')
-                        lib.requestAnimDict('mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance)
-                        TaskPlayAnim(npc, 'mini@strip_club@pole_dance@pole_dance' .. randomAnim.dance, 
-                            'pd_dance_0' .. randomAnim.dance, 1.0, 1.0, -1, 1, 0, 0, 0, 0)
-                    end
-                end
-            end
-            
-            stripperScenes[poleIndex] = scene
-            stripperData.isPresent = true
-        end)
+    -- Restart lap dance animation when returning
+    CreateThread(function()
+        Wait(500) -- Wait to ensure positioning
+        local lapAnims = Config.StripperNPCs.lapDanceAnimations
+        if lapAnims and #lapAnims > 0 then
+            local newIndex = math.random(1, #lapAnims)
+            stripperData.currentAnimIndex = newIndex
+            stripperData.animation = lapAnims[newIndex]
+            NPCPlayLapDance(npc, stripperData.animation)
+        end
+        stripperScenes[poleIndex] = nil
+        stripperData.isPresent = true
+    end)
         
         print('[POLEDANCE] Returned stripper NPC to pole', poleIndex)
     else
@@ -1013,24 +990,40 @@ end)
 RegisterNetEvent('bm_bar:purchase', function(data)
     local item = data.item
     local type = data.type
-    
-    -- Show confirmation with loading indicator
-    local alert = lib.alertDialog({
-        header = 'Purchase ' .. item.label,
-        content = 'Are you sure you want to buy ' .. item.label .. ' for $' .. item.price .. '?',
+
+    -- Ask quantity first
+    local response = lib.inputDialog('Purchase ' .. item.label, {
+        {
+            type = 'number',
+            label = 'Quantity',
+            description = 'How many do you want to buy?',
+            required = true,
+            default = 1,
+            min = 1,
+            max = 50
+        }
+    })
+    if not response then return end
+    local qty = tonumber(response[1]) or 1
+    if qty < 1 then qty = 1 end
+
+    local total = item.price * qty
+    local confirm = lib.alertDialog({
+        header = 'Confirm Purchase',
+        content = ('Buy %dx %s for $%d?'):format(qty, item.label, total),
         centered = true,
         cancel = true
     })
-    
-    if alert == 'confirm' then
-        -- Trigger server purchase
-        TriggerServerEvent('bm_bar:buyItem', {
-            item = item.item,
-            label = item.label,
-            price = item.price,
-            type = type
-        })
-    end
+    if confirm ~= 'confirm' then return end
+
+    -- Trigger server purchase with quantity
+    TriggerServerEvent('bm_bar:buyItem', {
+        item = item.item,
+        label = item.label,
+        price = item.price,
+        quantity = qty,
+        type = type
+    })
 end)
 
 RegisterNetEvent('bm_dance:pole', function()
