@@ -74,6 +74,15 @@ return {
         { position = vector4(104.16384124756, -1294.2568359375, 28.26, 30) },
         { position = vector4(102.25046539307, -1290.8802490234, 28.25, 30) },
         { position = vector4(112.580322265631, -1287.0412597656, 27.46, 30) }
+    },
+
+    -- Changing Rooms (open clothing menu / outfits)
+    -- Add entries here to create one or more changing areas.
+    -- Each entry: { position = vec4(x, y, z, heading), size = vec3(w, l, h), job = 'optionalJob' }
+    -- If job is set, only that job can use the changing room.
+    -- Defaults below are near Vanilla Unicorn back rooms; adjust as desired.
+    ChangingRooms = {
+        { position = vec4(107.35, -1305.13, 28.77, 165.34), size = vec3(2.5, 2.5, 3.0) },
     }
 
 }

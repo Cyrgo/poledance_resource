@@ -1,6 +1,7 @@
 local polePoints = {}
 local poleProps = {}
 local modelTargs = {}
+local changingZones = {}
 local isDancing = false
 local currentScene = nil
 local earningThread = nil
@@ -9,6 +10,15 @@ local bartenderBlip = nil
 local stripperNPCs = {}
 local stripperScenes = {}
 local Config = require 'config.config'
+
+local function OpenChangingRoom()
+    if GetResourceState('illenium-appearance') ~= 'started' then
+        lib.notify({ title = 'Changing Room', description = 'Appearance not started', type = 'error' })
+        print('[POLEDANCE] Changing Room: illenium-appearance not started')
+        return
+    end
+    TriggerEvent('illenium-appearance:client:openClothingShopMenu', true)
+end
 
 -- Helper function to enumerate all peds
 function EnumeratePeds()
@@ -667,6 +677,15 @@ local function DestroyTargets()
             pole:remove()
         end
     end
+    for _, zone in ipairs(changingZones) do
+        if Config.Target == 'ox' then
+            exports.ox_target:removeZone(zone)
+        elseif Config.Target == 'qb' then
+            exports['qb-target']:RemoveZone(zone)
+        elseif Config.Target == 'lib' then
+            zone:remove()
+        end
+    end
     for _, pole in ipairs(poleProps) do
         if DoesEntityExist(pole) then
             DeleteObject(pole)
@@ -727,6 +746,34 @@ local function CreateTargets()
             print('[POLEDANCE] Created ox_target zone for pole', k, 'at', v.position)
             polePoints[#polePoints + 1] = poleZone
         end
+
+        -- Changing Rooms (ox_target)
+        if Config.ChangingRooms and #Config.ChangingRooms > 0 then
+            for i, room in ipairs(Config.ChangingRooms) do
+                local center = vec3(room.position.x, room.position.y, room.position.z)
+                local params = {
+                    coords = center,
+                    size = (room.size or vec3(2.5, 2.5, 3.0)),
+                    rotation = room.position.w or 0.0,
+                    debug = Config.Debug,
+                    options = {
+                        {
+                            label = 'Changing Room',
+                            name = 'ChangingRoom' .. i,
+                            icon = 'fas fa-tshirt',
+                            distance = 3.0,
+                            groups = room.job,
+                            onSelect = function()
+                                OpenChangingRoom()
+                            end
+                        }
+                    }
+                }
+                local zone = exports.ox_target:addBoxZone(params)
+                changingZones[#changingZones + 1] = zone
+                print('[POLEDANCE] Created Changing Room (ox_target) at', room.position)
+            end
+        end
     elseif Config.Target == 'qb' then
         if Config.UseModels then
             exports['qb-target']:AddTargetModel('prop_strip_pole_01', {
@@ -771,6 +818,31 @@ local function CreateTargets()
             )
             polePoints[#polePoints + 1] = poleZone
         end
+
+        -- Changing Rooms (qb-target)
+        if Config.ChangingRooms and #Config.ChangingRooms > 0 then
+            for i, room in ipairs(Config.ChangingRooms) do
+                local zone = exports['qb-target']:AddBoxZone('changingroom_' .. i, room.position.xyz, (room.size and room.size.x or 2.5), (room.size and room.size.y or 2.5), {
+                    name = 'changingroom_' .. i,
+                    heading = room.position.w,
+                    debugPoly = Config.Debug,
+                    minZ = room.position.z - 1.75,
+                    maxZ = room.position.z + ((room.size and room.size.z) or 3.0)
+                }, {
+                    options = {
+                        {
+                            icon = 'fas fa-tshirt',
+                            label = 'Changing Room',
+                            action = OpenChangingRoom,
+                            job = room.job
+                        }
+                    },
+                    distance = 2.0
+                })
+                changingZones[#changingZones + 1] = zone
+                print('[POLEDANCE] Created Changing Room (qb-target) at', room.position)
+            end
+        end
     elseif Config.Target == 'lib' then
         for k, v in pairs(Config.Poles) do
             if v.spawn then
@@ -808,6 +880,31 @@ local function CreateTargets()
             }
             local poleZone = lib.zones.box(params)
             polePoints[#polePoints + 1] = poleZone
+        end
+        -- Changing Rooms (lib.zones)
+        if Config.ChangingRooms and #Config.ChangingRooms > 0 then
+            for i, room in ipairs(Config.ChangingRooms) do
+                local params = {
+                    coords = vec3(room.position.x, room.position.y, room.position.z + 0.5),
+                    size = room.size or vec3(2.5, 2.5, 3.0),
+                    rotation = room.position.w,
+                    onEnter = function()
+                        lib.showTextUI('Press [E] to change clothes')
+                    end,
+                    inside = function()
+                        if IsControlJustReleased(0, 38) then
+                            OpenChangingRoom()
+                        end
+                    end,
+                    onExit = function()
+                        lib.hideTextUI()
+                    end,
+                    debug = Config.Debug,
+                }
+                local zone = lib.zones.box(params)
+                changingZones[#changingZones + 1] = zone
+                print('[POLEDANCE] Created Changing Room (lib) at', room.position)
+            end
         end
     end
     for _, v in ipairs(Config.Poles) do
@@ -953,6 +1050,20 @@ RegisterNetEvent('bm_dance:pole', function()
         CreateTargets()
     else
         print("Action canceled.")
+    end
+end)
+
+-- Helper to copy Changing Room position config via raycast
+RegisterNetEvent('bm_dance:changing', function()
+    local pos = StartRay()
+    if pos then
+        local roomConfig = string.format("{ position = vec4(%.2f, %.2f, %.2f, 0.0), size = vec3(1.6, 1.6, 2.0) },",
+            pos.x, pos.y, pos.z)
+        lib.setClipboard(roomConfig)
+        lib.notify({ title = 'Changing Room', description = 'New changing room copied to clipboard', type = 'success' })
+        print('[POLEDANCE] Changing Room config:', roomConfig)
+    else
+        print('Action canceled.')
     end
 end)
 
