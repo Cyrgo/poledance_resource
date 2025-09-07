@@ -3,6 +3,28 @@ return {
     UseModels = false,                                    --UseModels true for all prop instances
     Target = 'ox',                                        --Target 'qb' or 'ox' or 'lib'
     
+    -- Stress relief while dancing
+    StressRelief = {
+        enabled = true,                                   -- Gradually reduce stress while dancing
+        interval = 15000,                                  -- How often to reduce stress (milliseconds)
+        amountPerTick = 2,                                 -- Stress reduced per tick (0-100 scale)
+        notifications = false                              -- Show a small notify per tick
+    },
+
+    -- Areas that grant stress relief to visitors (no dancing required)
+    -- Define one or more areas; supports 'box' (size + rotation) or 'sphere' (radius)
+    StressAreas = {
+        -- Vanilla Unicorn main interior (approx)
+        {
+            type = 'box',                                  -- 'box' or 'sphere'
+            coords = vec3(111.0, -1291.0, 29.0),
+            size = vec3(35.0, 28.0, 10.0),                 -- width, length, height
+            rotation = 30.0,                                -- heading of the box
+        },
+        -- Example sphere definition (disabled by default)
+        -- { type = 'sphere', coords = vec3(111.0, -1291.0, 29.0), radius = 22.0 },
+    },
+    
     -- NPC Earnings Configuration
     NPCEarnings = {
         enabled = true,                                   -- Enable/disable NPC earnings system

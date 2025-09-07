@@ -5,11 +5,16 @@ local changingZones = {}
 local isDancing = false
 local currentScene = nil
 local earningThread = nil
+local stressThread = nil
 local bartenderNPC = nil
 local bartenderBlip = nil
 local stripperNPCs = {}
 local stripperScenes = {}
 local Config = require 'config.config'
+-- Disable all console debug logs for this resource
+local function print(...) end
+local stressZones = {}
+local inStressArea = false
 
 local function OpenChangingRoom()
     if GetResourceState('illenium-appearance') ~= 'started' then
@@ -105,6 +110,24 @@ end
 local function StopEarningMoney()
     if earningThread then
         earningThread = nil
+    end
+end
+
+-- Stress relief while dancing
+local function StartStressRelief()
+    if not Config.StressRelief or not Config.StressRelief.enabled or stressThread then return end
+    stressThread = CreateThread(function()
+        while isDancing or inStressArea do
+            TriggerServerEvent('bm_dance:relieveStress', Config.StressRelief.amountPerTick)
+            Wait(Config.StressRelief.interval)
+        end
+        stressThread = nil
+    end)
+end
+
+local function StopStressRelief()
+    if stressThread then
+        stressThread = nil
     end
 end
 
@@ -428,6 +451,10 @@ local function StopDancing()
     
     -- Stop earning money from NPCs
     StopEarningMoney()
+    -- Stop stress relief unless still inside a stress area
+    if not inStressArea then
+        StopStressRelief()
+    end
     
     -- Stop synchronized scene if one is active
     if currentScene then
@@ -923,6 +950,8 @@ RegisterNetEvent('bm_dance:start', function(args)
             NetworkStartSynchronisedScene(currentScene)
             -- Start earning money from nearby NPCs
             StartEarningMoney()
+            -- Start relieving stress over time
+            StartStressRelief()
         else
             print('[POLEDANCE] No nearby point object found, using pole position')
             usePolePosition = true
@@ -937,6 +966,8 @@ RegisterNetEvent('bm_dance:start', function(args)
         currentScene = nil -- Lap dances don't use synchronized scenes
         -- Start earning money from nearby NPCs
         StartEarningMoney()
+        -- Start relieving stress over time
+        StartStressRelief()
     else
         local playerCoords = GetEntityCoords(cache.ped)
         for _, pole in ipairs(Config.Poles) do
@@ -962,6 +993,8 @@ RegisterNetEvent('bm_dance:start', function(args)
             NetworkStartSynchronisedScene(currentScene)
             -- Start earning money from nearby NPCs
             StartEarningMoney()
+            -- Start relieving stress over time
+            StartStressRelief()
         else
             if Config.Debug then print('Not close') end
         end
@@ -1046,6 +1079,48 @@ RegisterNetEvent('bm_dance:pole', function()
     end
 end)
 
+-- Visitor stress-relief zones (no dancing required)
+local function DestroyStressZones()
+    for _, z in ipairs(stressZones) do
+        if z and z.remove then z:remove() end
+    end
+    stressZones = {}
+    inStressArea = false
+end
+
+local function CreateStressZones()
+    DestroyStressZones()
+    if not Config.StressRelief or not Config.StressRelief.enabled then return end
+    if not Config.StressAreas or #Config.StressAreas == 0 then return end
+
+    for i, area in ipairs(Config.StressAreas) do
+        local params = {
+            coords = area.coords,
+            debug = Config.Debug,
+            onEnter = function()
+                inStressArea = true
+                StartStressRelief()
+            end,
+            onExit = function()
+                inStressArea = false
+                if not isDancing then
+                    StopStressRelief()
+                end
+            end
+        }
+
+        local zone
+        if area.type == 'sphere' and area.radius then
+            params.radius = area.radius
+            zone = lib.zones.sphere(params)
+        else
+            params.size = area.size or vec3(20.0, 20.0, 6.0)
+            params.rotation = area.rotation or 0.0
+            zone = lib.zones.box(params)
+        end
+        stressZones[#stressZones + 1] = zone
+    end
+end
 -- Helper to copy Changing Room position config via raycast
 RegisterNetEvent('bm_dance:changing', function()
     local pos = StartRay()
@@ -1064,10 +1139,11 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then
         return
     end
-    print('[POLEDANCE] Resource starting, creating targets, bartender, and stripper NPCs...')
+    print('[POLEDANCE] Resource starting, creating targets, bartender, stripper NPCs, and stress zones...')
     CreateTargets()
     SpawnBartender()
     SpawnStripperNPCs()
+    CreateStressZones()
     print('[POLEDANCE] All systems created successfully')
 end)
 
@@ -1078,6 +1154,7 @@ AddEventHandler('onClientResourceStop', function(resourceName)
     DestroyTargets()
     CleanupBartender()
     CleanupStripperNPCs()
+    DestroyStressZones()
 end)
 
 if GetResourceState('qbx_core') == 'started' then
@@ -1086,11 +1163,13 @@ if GetResourceState('qbx_core') == 'started' then
         CreateTargets()
         SpawnBartender()
         SpawnStripperNPCs()
+        CreateStressZones()
     end)
     AddEventHandler('qbx_core:client:PlayerLoaded', function()
         Wait(3000)
         CreateTargets()
         SpawnBartender()
         SpawnStripperNPCs()
+        CreateStressZones()
     end)
 end
