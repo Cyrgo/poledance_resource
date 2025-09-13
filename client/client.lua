@@ -11,6 +11,7 @@ local bartenderBlip = nil
 local stripperNPCs = {}
 local stripperScenes = {}
 local Config = require 'config.config'
+local dancingPoleIndex = nil
 -- Disable all console debug logs for this resource
 local function print(...) end
 local stressZones = {}
@@ -356,11 +357,6 @@ local function DismissStripperNPC(poleIndex)
     stripperData.isPresent = false
     
     print('[POLEDANCE] Dismissed stripper NPC from pole', poleIndex)
-    
-    -- Set timer to return NPC
-    SetTimeout(Config.StripperNPCs.returnDelay, function()
-        ReturnStripperNPC(poleIndex)
-    end)
 end
 
 -- Function to return stripper NPC to pole
@@ -436,8 +432,11 @@ local function DismissNPCAtPlayerPole()
             if stripperData and stripperData.isPresent then
                 DismissStripperNPC(poleIndex)
                 print('[POLEDANCE] Player started dancing, dismissed NPC from pole', poleIndex)
-                break -- Only dismiss from one pole
             end
+            -- Always broadcast start usage so server tracks occupancy
+            TriggerServerEvent('bm_dance:dismissAtPole', poleIndex)
+            dancingPoleIndex = poleIndex
+            break -- Only one pole
         end
     end
 end
@@ -448,6 +447,11 @@ local function StopDancing()
     if not isDancing then return end
     
     isDancing = false
+    -- Notify server that this player stopped at the pole
+    if dancingPoleIndex then
+        TriggerServerEvent('bm_dance:stopAtPole', dancingPoleIndex)
+        dancingPoleIndex = nil
+    end
     
     -- Stop earning money from NPCs
     StopEarningMoney()
@@ -999,6 +1003,39 @@ RegisterNetEvent('bm_dance:start', function(args)
             if Config.Debug then print('Not close') end
         end
     end
+end)
+
+-- Network sync: when any player starts dancing at a pole, dismiss that pole's NPC for everyone
+RegisterNetEvent('bm_dance:dismissAtPole', function(poleIndex)
+    if type(poleIndex) ~= 'number' then return end
+    if not Config.StripperNPCs or not Config.StripperNPCs.enabled then return end
+    if not Config.Poles or not Config.Poles[poleIndex] then return end
+    DismissStripperNPC(poleIndex)
+end)
+
+-- Network sync: server instructs all clients to return NPC to pole
+RegisterNetEvent('bm_dance:returnAtPole', function(poleIndex)
+    if type(poleIndex) ~= 'number' then return end
+    if not Config.StripperNPCs or not Config.StripperNPCs.enabled then return end
+    local stripperData = stripperNPCs[poleIndex]
+    if not stripperData or not stripperData.npc then return end
+    local npc = stripperData.npc
+    local pole = stripperData.originalPosition
+    ClearPedTasks(npc)
+    SetEntityCoords(npc, pole.x, pole.y, pole.z - 1.0, false, false, false, false)
+    SetEntityHeading(npc, pole.w)
+    CreateThread(function()
+        Wait(300)
+        local lapAnims = Config.StripperNPCs.lapDanceAnimations
+        if lapAnims and #lapAnims > 0 then
+            local newIndex = math.random(1, #lapAnims)
+            stripperData.currentAnimIndex = newIndex
+            stripperData.animation = lapAnims[newIndex]
+            NPCPlayLapDance(npc, stripperData.animation)
+        end
+        stripperScenes[poleIndex] = nil
+        stripperData.isPresent = true
+    end)
 end)
 
 -- Handle earnings notifications from server
